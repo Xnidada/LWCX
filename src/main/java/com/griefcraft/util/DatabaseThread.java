@@ -149,16 +149,23 @@ public class DatabaseThread implements Runnable {
      * Flush the protections to the database
      */
     private void flushDatabase() {
+        boolean databaseChanged = false;
         Runnable task;
         while ((task = taskQueue.poll()) != null) {
             try {
                 task.run();
+                databaseChanged = true;
             } catch (Throwable throwable) {
                 lwc.log("Database task failed: " + throwable.getMessage());
+                try {
+                    lwc.getPhysicalDatabase().getConnection().rollback();
+                } catch (SQLException ignored) {
+                }
             }
         }
 
         if (!updateQueue.isEmpty()) {
+            databaseChanged = true;
             Database database = lwc.getPhysicalDatabase();
             // Begin iterating through the queue
             Iterator<Protection> iter = updateQueue.iterator();
@@ -167,8 +174,11 @@ public class DatabaseThread implements Runnable {
                 iter.remove();
                 protection.saveNow();
             }
+        }
+
+        if (databaseChanged) {
             try {
-                database.getConnection().commit();
+                lwc.getPhysicalDatabase().getConnection().commit();
             } catch (SQLException e) {
                 e.printStackTrace();
             }
