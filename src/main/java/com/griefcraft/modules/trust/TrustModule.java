@@ -118,12 +118,21 @@ public class TrustModule extends JavaModule {
     }
 
     private boolean isTrusted(String owner, UUID player) {
-        try {
-            Set<UUID> trusted = trusts.get(UUID.fromString(owner));
-            return trusted != null && trusted.contains(player);
-        } catch (Exception ignored) {
+        if (owner == null || player == null) {
             return false;
         }
+
+        UUID ownerUuid = UUIDRegistry.getUUID(owner);
+        if (ownerUuid == null) {
+            try {
+                ownerUuid = UUID.fromString(owner);
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
+        }
+
+        Set<UUID> trusted = trusts.get(ownerUuid);
+        return trusted != null && trusted.contains(player);
     }
 
     private void loadTrusts() {
