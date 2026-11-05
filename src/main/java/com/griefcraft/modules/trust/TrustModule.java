@@ -17,8 +17,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -108,7 +106,11 @@ public class TrustModule extends JavaModule {
         }
 
         if (changed) {
-            saveTrusts();
+            if (trust) {
+                lwc.getPhysicalDatabase().addTrust(owner, target);
+            } else {
+                lwc.getPhysicalDatabase().removeTrust(owner, target);
+            }
         }
 
         lwc.sendLocale(sender, trust ? "lwc.trust.added" : "lwc.trust.removed",
@@ -126,7 +128,8 @@ public class TrustModule extends JavaModule {
 
     private void loadTrusts() {
         trusts.clear();
-        if (file == null || !file.isFile()) {
+        int databaseTrusts = LWC.getInstance().getPhysicalDatabase().loadTrusts(trusts);
+        if (databaseTrusts > 0 || file == null || !file.isFile()) {
             return;
         }
 
@@ -148,31 +151,17 @@ public class TrustModule extends JavaModule {
                 }
                 if (!trusted.isEmpty()) {
                     trusts.put(owner, trusted);
+                    for (UUID target : trusted) {
+                        LWC.getInstance().getPhysicalDatabase().addTrust(owner, target);
+                    }
                 }
             } catch (IllegalArgumentException ignored) {
             }
         }
-    }
 
-    private void saveTrusts() {
-        if (file == null) {
-            return;
-        }
-
-        YamlConfiguration config = new YamlConfiguration();
-        for (Map.Entry<UUID, Set<UUID>> entry : trusts.entrySet()) {
-            ArrayList<String> trusted = new ArrayList<String>();
-            for (UUID target : entry.getValue()) {
-                trusted.add(target.toString());
-            }
-            config.set("trusts." + entry.getKey().toString(), trusted);
-        }
-
-        try {
-            file.getParentFile().mkdirs();
-            config.save(file);
-        } catch (IOException e) {
-            LWC.getInstance().log("Unable to save trust data: " + e.getMessage());
+        File migrated = new File(file.getPath() + ".migrated");
+        if (!file.renameTo(migrated)) {
+            LWC.getInstance().log("Unable to archive migrated trust.yml");
         }
     }
 }

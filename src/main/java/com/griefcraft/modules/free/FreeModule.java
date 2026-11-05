@@ -67,7 +67,7 @@ public class FreeModule extends JavaModule {
             return;
         }
 
-        if (!lwc.isAdmin(player)
+        if (!lwc.canAdminProtection(player, protection) && !lwc.isAdmin(player)
                 && Boolean.parseBoolean(lwc.resolveProtectionConfiguration(protection.getBlock(), "readonly-remove"))) {
             lwc.sendLocale(player, "protection.accessdenied");
             return;
@@ -133,7 +133,7 @@ public class FreeModule extends JavaModule {
             return;
         }
 
-        if (!lwc.isAdmin(player)
+        if (!lwc.canAdminProtection(player, protection) && !lwc.isAdmin(player)
                 && Boolean.parseBoolean(lwc.resolveProtectionConfiguration(protection.getBlock(), "readonly-remove"))) {
             lwc.sendLocale(player, "protection.accessdenied");
             return;

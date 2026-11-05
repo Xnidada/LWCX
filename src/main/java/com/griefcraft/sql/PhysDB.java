@@ -51,8 +51,11 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class PhysDB extends Database {
@@ -392,6 +395,7 @@ public class PhysDB extends Database {
         protections.execute();
         history.execute();
         internal.execute();
+        createTrustTable();
 
         // Load the database version
         loadDatabaseVersion();
@@ -403,6 +407,128 @@ public class PhysDB extends Database {
         protectionCount = getProtectionCount();
 
         loaded = true;
+    }
+
+    private void createTrustTable() {
+        Statement statement = null;
+        try {
+            statement = getConnection().createStatement();
+            statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + prefix
+                    + "trusts (owner VARCHAR(255) NOT NULL, trusted VARCHAR(255) NOT NULL)");
+        } catch (SQLException e) {
+            printException(e);
+        } finally {
+            if (statement != null) {
+                try {
+                    statement.close();
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+    }
+
+    public int loadTrusts(Map<UUID, Set<UUID>> trusts) {
+        int count = 0;
+        PreparedStatement statement = null;
+        ResultSet result = null;
+        try {
+            statement = getConnection().prepareStatement("SELECT owner, trusted FROM " + prefix + "trusts");
+            result = statement.executeQuery();
+            while (result.next()) {
+                try {
+                    UUID owner = UUID.fromString(result.getString("owner"));
+                    UUID trusted = UUID.fromString(result.getString("trusted"));
+                    Set<UUID> players = trusts.get(owner);
+                    if (players == null) {
+                        players = new HashSet<UUID>();
+                        trusts.put(owner, players);
+                    }
+                    if (players.add(trusted)) {
+                        count++;
+                    }
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        } catch (SQLException e) {
+            printException(e);
+        } finally {
+            if (result != null) {
+                try {
+                    result.close();
+                } catch (SQLException ignored) {
+                }
+            }
+            if (statement != null) {
+                try {
+                    statement.close();
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+        return count;
+    }
+
+    public void addTrust(UUID owner, UUID trusted) {
+        PreparedStatement check = null;
+        ResultSet result = null;
+        PreparedStatement insert = null;
+        try {
+            check = getConnection().prepareStatement("SELECT 1 FROM " + prefix
+                    + "trusts WHERE owner = ? AND trusted = ?");
+            check.setString(1, owner.toString());
+            check.setString(2, trusted.toString());
+            result = check.executeQuery();
+            if (result.next()) {
+                return;
+            }
+
+            insert = getConnection().prepareStatement("INSERT INTO " + prefix
+                    + "trusts (owner, trusted) VALUES (?, ?)");
+            insert.setString(1, owner.toString());
+            insert.setString(2, trusted.toString());
+            insert.executeUpdate();
+        } catch (SQLException e) {
+            printException(e);
+        } finally {
+            if (result != null) {
+                try {
+                    result.close();
+                } catch (SQLException ignored) {
+                }
+            }
+            if (check != null) {
+                try {
+                    check.close();
+                } catch (SQLException ignored) {
+                }
+            }
+            if (insert != null) {
+                try {
+                    insert.close();
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+    }
+
+    public void removeTrust(UUID owner, UUID trusted) {
+        PreparedStatement statement = null;
+        try {
+            statement = getConnection().prepareStatement("DELETE FROM " + prefix
+                    + "trusts WHERE owner = ? AND trusted = ?");
+            statement.setString(1, owner.toString());
+            statement.setString(2, trusted.toString());
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            printException(e);
+        } finally {
+            if (statement != null) {
+                try {
+                    statement.close();
+                } catch (SQLException ignored) {
+                }
+            }
+        }
     }
 
     /**
