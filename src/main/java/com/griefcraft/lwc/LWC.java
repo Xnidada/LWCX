@@ -92,6 +92,7 @@ import com.griefcraft.modules.setup.BaseSetupModule;
 import com.griefcraft.modules.setup.DatabaseSetupModule;
 import com.griefcraft.modules.setup.LimitsSetup;
 import com.griefcraft.modules.unlock.UnlockModule;
+import com.griefcraft.modules.trust.TrustModule;
 import com.griefcraft.scripting.Module;
 import com.griefcraft.scripting.ModuleLoader;
 import com.griefcraft.scripting.event.LWCAccessEvent;
@@ -1747,6 +1748,7 @@ public class LWC {
         registerModule(new FixModule());
         registerModule(new HistoryModule());
         registerModule(new ConfirmModule());
+        registerModule(new TrustModule());
 
         // admin commands
         registerModule(new BaseAdminModule());

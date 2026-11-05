@@ -139,6 +139,10 @@ permissions:
   lwc.remove:
       description: Allows you to remove protections you own.
 
+  lwc.trust:
+      description: Allows you to trust players for all of your protections.
+      default: true
+
   lwc.flag.*:
       description: Gives you access to every usable flag.
       children:
