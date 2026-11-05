@@ -11,6 +11,7 @@ import com.griefcraft.scripting.event.LWCAccessEvent;
 import com.griefcraft.scripting.event.LWCCommandEvent;
 import com.griefcraft.scripting.event.LWCReloadEvent;
 import com.griefcraft.util.UUIDRegistry;
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.command.CommandSender;
@@ -26,17 +27,18 @@ import java.util.UUID;
 public class TrustModule extends JavaModule {
 
     private final Map<UUID, Set<UUID>> trusts = new HashMap<UUID, Set<UUID>>();
+    private final Set<UUID> loadedOwners = new HashSet<UUID>();
     private File file;
 
     @Override
     public void load(LWC lwc) {
         file = new File(lwc.getPlugin().getDataFolder(), "trust.yml");
-        loadTrusts();
+        loadLegacyTrusts();
     }
 
     @Override
     public void onReload(LWCReloadEvent event) {
-        loadTrusts();
+        loadLegacyTrusts();
     }
 
     @Override
@@ -75,20 +77,62 @@ public class TrustModule extends JavaModule {
             return;
         }
 
-        Player player = (Player) sender;
-        UUID target = UUIDRegistry.getUUID(args[0]);
+        final Player player = (Player) sender;
+        final String targetName = args[0];
+        final boolean trust = event.hasFlag("trust");
+        Player onlineTarget = Bukkit.getPlayerExact(targetName);
+        UUID target = onlineTarget == null ? parseUuid(targetName) : onlineTarget.getUniqueId();
+        if (target == null && !UUIDRegistry.isValidUUID(targetName)) {
+            resolveTargetAsync(lwc, sender, player, targetName, trust);
+            return;
+        }
+
+        applyTrust(lwc, sender, player, target, targetName, trust);
+    }
+
+    private void resolveTargetAsync(final LWC lwc, final CommandSender sender,
+                                    final Player ownerPlayer, final String targetName,
+                                    final boolean trust) {
+        lwc.getPlugin().getServer().getScheduler().scheduleAsyncDelayedTask(lwc.getPlugin(), new Runnable() {
+            @Override
+            public void run() {
+                final UUID target = UUIDRegistry.getUUID(targetName);
+                lwc.getPlugin().getServer().getScheduler().scheduleSyncDelayedTask(lwc.getPlugin(), new Runnable() {
+                    @Override
+                    public void run() {
+                        if (target == null) {
+                            lwc.sendLocale(sender, "lwc.trust.playernotfound", "name", targetName);
+                            return;
+                        }
+                        applyTrust(lwc, sender, ownerPlayer, target, targetName, trust);
+                    }
+                });
+            }
+        });
+    }
+
+    private UUID parseUuid(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private void applyTrust(final LWC lwc, CommandSender sender, Player player,
+                            UUID target, String targetName, boolean trust) {
         if (target == null) {
-            lwc.sendLocale(sender, "lwc.trust.playernotfound", "name", args[0]);
+            lwc.sendLocale(sender, "lwc.trust.playernotfound", "name", targetName);
             return;
         }
 
         UUID owner = player.getUniqueId();
+        loadOwner(owner);
         if (owner.equals(target)) {
             lwc.sendLocale(sender, "lwc.trust.self");
             return;
         }
 
-        boolean trust = event.hasFlag("trust");
         Set<UUID> trusted = trusts.get(owner);
         boolean changed;
 
@@ -106,15 +150,22 @@ public class TrustModule extends JavaModule {
         }
 
         if (changed) {
-            if (trust) {
-                lwc.getPhysicalDatabase().addTrust(owner, target);
-            } else {
-                lwc.getPhysicalDatabase().removeTrust(owner, target);
-            }
+            final UUID databaseOwner = owner;
+            final UUID databaseTarget = target;
+            lwc.getDatabaseThread().addTask(new Runnable() {
+                @Override
+                public void run() {
+                    if (trust) {
+                        lwc.getPhysicalDatabase().addTrust(databaseOwner, databaseTarget);
+                    } else {
+                        lwc.getPhysicalDatabase().removeTrust(databaseOwner, databaseTarget);
+                    }
+                }
+            });
         }
 
         lwc.sendLocale(sender, trust ? "lwc.trust.added" : "lwc.trust.removed",
-                "name", UUIDRegistry.formatPlayerName(target.toString(), false));
+                "name", targetName);
     }
 
     private boolean isTrusted(String owner, UUID player) {
@@ -122,23 +173,39 @@ public class TrustModule extends JavaModule {
             return false;
         }
 
-        UUID ownerUuid = UUIDRegistry.getUUID(owner);
+        UUID ownerUuid = resolveOwner(owner);
         if (ownerUuid == null) {
-            try {
-                ownerUuid = UUID.fromString(owner);
-            } catch (IllegalArgumentException ignored) {
-                return false;
-            }
+            return false;
         }
 
+        loadOwner(ownerUuid);
         Set<UUID> trusted = trusts.get(ownerUuid);
         return trusted != null && trusted.contains(player);
     }
 
-    private void loadTrusts() {
+    private void loadOwner(UUID owner) {
+        if (loadedOwners.contains(owner)) {
+            return;
+        }
+
+        Set<UUID> trusted = new HashSet<UUID>();
+        LWC.getInstance().getPhysicalDatabase().loadTrusts(owner, trusted);
+        trusts.put(owner, trusted);
+        loadedOwners.add(owner);
+    }
+
+    private UUID resolveOwner(String owner) {
+        if (UUIDRegistry.isValidUUID(owner)) {
+            return parseUuid(owner);
+        }
+        Player onlineOwner = Bukkit.getPlayerExact(owner);
+        return onlineOwner == null ? UUIDRegistry.getUUID(owner) : onlineOwner.getUniqueId();
+    }
+
+    private void loadLegacyTrusts() {
         trusts.clear();
-        int databaseTrusts = LWC.getInstance().getPhysicalDatabase().loadTrusts(trusts);
-        if (databaseTrusts > 0 || file == null || !file.isFile()) {
+        loadedOwners.clear();
+        if (file == null || !file.isFile()) {
             return;
         }
 
@@ -160,8 +227,16 @@ public class TrustModule extends JavaModule {
                 }
                 if (!trusted.isEmpty()) {
                     trusts.put(owner, trusted);
+                    loadedOwners.add(owner);
                     for (UUID target : trusted) {
-                        LWC.getInstance().getPhysicalDatabase().addTrust(owner, target);
+                        final UUID databaseOwner = owner;
+                        final UUID databaseTarget = target;
+                        LWC.getInstance().getDatabaseThread().addTask(new Runnable() {
+                            @Override
+                            public void run() {
+                                LWC.getInstance().getPhysicalDatabase().addTrust(databaseOwner, databaseTarget);
+                            }
+                        });
                     }
                 }
             } catch (IllegalArgumentException ignored) {

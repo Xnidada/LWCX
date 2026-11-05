@@ -468,6 +468,38 @@ public class PhysDB extends Database {
         return count;
     }
 
+    public void loadTrusts(UUID owner, Set<UUID> trusted) {
+        PreparedStatement statement = null;
+        ResultSet result = null;
+        try {
+            statement = getConnection().prepareStatement("SELECT trusted FROM " + prefix
+                    + "trusts WHERE owner = ?");
+            statement.setString(1, owner.toString());
+            result = statement.executeQuery();
+            while (result.next()) {
+                try {
+                    trusted.add(UUID.fromString(result.getString("trusted")));
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        } catch (SQLException e) {
+            printException(e);
+        } finally {
+            if (result != null) {
+                try {
+                    result.close();
+                } catch (SQLException ignored) {
+                }
+            }
+            if (statement != null) {
+                try {
+                    statement.close();
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+    }
+
     public void addTrust(UUID owner, UUID trusted) {
         PreparedStatement check = null;
         ResultSet result = null;

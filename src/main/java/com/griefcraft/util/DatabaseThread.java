@@ -50,6 +50,12 @@ public class DatabaseThread implements Runnable {
     private final Queue<Protection> updateQueue = new ConcurrentLinkedQueue<Protection>();
 
     /**
+     * Small database operations that must run on the database thread rather than
+     * blocking the server thread.
+     */
+    private final Queue<Runnable> taskQueue = new ConcurrentLinkedQueue<Runnable>();
+
+    /**
      * The thread we are running in
      */
     private final Thread thread = new Thread(this);
@@ -90,6 +96,13 @@ public class DatabaseThread implements Runnable {
      */
     public void addProtection(Protection protection) {
         updateQueue.offer(protection);
+    }
+
+    public void addTask(Runnable task) {
+        if (task != null) {
+            taskQueue.offer(task);
+            flush();
+        }
     }
 
     /**
@@ -136,6 +149,15 @@ public class DatabaseThread implements Runnable {
      * Flush the protections to the database
      */
     private void flushDatabase() {
+        Runnable task;
+        while ((task = taskQueue.poll()) != null) {
+            try {
+                task.run();
+            } catch (Throwable throwable) {
+                lwc.log("Database task failed: " + throwable.getMessage());
+            }
+        }
+
         if (!updateQueue.isEmpty()) {
             Database database = lwc.getPhysicalDatabase();
             // Begin iterating through the queue
